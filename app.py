@@ -123,7 +123,11 @@ def highlight_query(text: str, query: str) -> str:
 
     for q in query_parts:
         pattern = re.compile(re.escape(q), re.IGNORECASE)
-        highlighted = pattern.sub(lambda m: f"**{m.group(0)}**", highlighted)
+        highlighted = pattern.sub(
+            lambda m: (f"<span style='background-color: #fff59d; "
+                     f"padding: 0 2px; border-radius: 2px;'>{m.group(0)}</span>"
+            ), highlighted
+        )
 
     return highlighted
 
