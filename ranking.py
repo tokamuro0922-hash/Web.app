@@ -47,6 +47,17 @@ class SearchEngine:
             ])
             corpus.append(text)
 
+        doc_count = len(corpus)
+        max_df = 1.0 if doc_count < 2 else 0.95
+
+        self.vectorizer = TfidfVectorizer(
+            max_features=5000,
+            ngram_range=(1, 2),
+            min_df=1,
+            max_df=max_df,
+            sublinear_tf=True
+        )
+
         self.tfidf_matrix = self.vectorizer.fit_transform(corpus)
         self.is_fitted = True
 
