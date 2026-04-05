@@ -327,6 +327,7 @@ with tab_search:
                     if highlighted_snippet:
                         st.markdown("**ヒット箇所**")
                         st.markdown(highlighted_snippet)
+                        st.markdown(highlighted_snippet, unsafe_allow_html=True)
 
                     with st.expander("本文全体を確認"):
                         preview = full_text[:2000]
