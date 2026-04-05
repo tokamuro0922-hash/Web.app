@@ -50,6 +50,7 @@ def init_db():
     ensure_column(conn, "pages", "file_name", "TEXT")
     ensure_column(conn, "pages", "file_type", "TEXT")
     ensure_column(conn, "pages", "keywords", "TEXT")
+    ensure_column(conn, "pages", "view_count", "INTEGER DEFAULT 0")
 
     conn.commit()
     conn.close()
@@ -63,9 +64,9 @@ def insert_page(page: dict) -> int:
     cursor.execute("""
         INSERT INTO pages (
             url, title, description, full_text, author, category,
-            word_count, crawled_at, file_name, file_type, keywords
+            word_count, crawled_at,created_at, file_name, file_type, keywords
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(url) DO UPDATE SET
             title=excluded.title,
             description=excluded.description,
@@ -87,6 +88,7 @@ def insert_page(page: dict) -> int:
         page.get("category", ""),
         page.get("word_count", 0),
         page.get("crawled_at", datetime.now().isoformat()),
+        page.get("created_at", datetime.now().isoformat()),
         page.get("file_name", ""),
         page.get("file_type", ""),
         page.get("keywords", ""),
@@ -102,7 +104,7 @@ def get_all_pages() -> list:
     """登録済みページを取得する"""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM pages ORDER BY created_at DESC, id DESC")
+    cursor.execute("SELECT * FROM pages ORDER BY crawled_at DESC, id DESC")
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
@@ -127,3 +129,16 @@ def log_search(query: str, results_count: int, user_id: str = None) -> int:
     conn.commit()
     conn.close()
     return log_id
+
+def increment_view_count(page_id: int):
+    """閲覧数を +1 する"""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "UPDATE pages SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?",
+        (page_id,)
+    )
+
+    conn.commit()
+    conn.close()
