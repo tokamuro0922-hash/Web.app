@@ -17,12 +17,12 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
 
-import fitz                         #PDFを読み込むライブラリ
-from docx import Document           #ワードファイルを読み込むライブラリ
-from openpyxl import load_workbook  #エクセル（xlsx）ファイルを読み込むライブラリ
-import xlrd                         #エクセル（xls）ファイルを読み込むライブラリ
-from pptx import Presentation       #エクセル（pptx）ファイルを読み込むライブラリ
-from ocr import ocr_pdf             #ocr.pyからocr_pdfを読み込むライブラリ
+import fitz                         # PDFを読み込むライブラリ
+from docx import Document           # Wordファイルを読み込むライブラリ
+from openpyxl import load_workbook  # Excel（xlsx）を読み込むライブラリ
+import xlrd                         # Excel（xls）を読み込むライブラリ
+from pptx import Presentation       # PowerPoint（pptx）を読み込むライブラリ
+from ocr import ocr_pdf             # ocr.pyからocr_pdfを読み込むライブラリ
 
 
 def normalize_text(text: str) -> str:
@@ -51,7 +51,7 @@ def extract_text_from_txt(file_path: Path) -> str:
 
 def extract_text_from_pdf(file_path: Path) -> str:
     """PDF から本文を抽出する"""
-    doc_pdf = fitz.open(file_path)      #pypdfのライブラリだと抽出できなかったので、PyMuPDF(fitz)ライブラリを使用
+    doc_pdf = fitz.open(file_path)
     texts = []
 
     for page in doc_pdf:
@@ -60,13 +60,17 @@ def extract_text_from_pdf(file_path: Path) -> str:
             texts.append(page_text)
         except Exception:
             continue
-    
+
     pdf_full_text = "\n".join(texts).strip()
 
     if len(pdf_full_text) >= 20:
         return pdf_full_text
     else:
-        return ocr_pdf(file_path)
+        try:
+            return ocr_pdf(file_path)
+        except Exception as e:
+            print(f"OCR処理中にエラーが発生しました: {e}")
+            return ""
 
 
 def extract_text_from_docx(file_path: Path) -> str:
@@ -136,6 +140,98 @@ def extract_text_from_pptx(file_path: Path) -> str:
     return "\n".join(texts)
 
 
+def clean_author_value(value) -> str:
+    """author用の値を安全に文字列化する"""
+    if value is None:
+        return ""
+    value = str(value).strip()
+    if not value:
+        return ""
+    return value
+
+
+def extract_author(file_path: Path, suffix: str) -> str:
+    """ファイルの作成者 / 最終更新者をできるだけ取得する"""
+    try:
+        if suffix == ".docx":
+            doc = Document(file_path)
+            cp = doc.core_properties
+
+            last_modified_by = clean_author_value(getattr(cp, "last_modified_by", None))
+            if last_modified_by:
+                return last_modified_by
+
+            author = clean_author_value(getattr(cp, "author", None))
+            if author:
+                return author
+
+            return "不明"
+
+        elif suffix == ".xlsx":
+            wb = load_workbook(file_path)
+            props = wb.properties
+
+            # openpyxlでは lastModifiedBy のことが多い
+            last_modified_by = clean_author_value(getattr(props, "lastModifiedBy", None))
+            if last_modified_by:
+                return last_modified_by
+
+            # 念のため snake_case も確認
+            last_modified_by = clean_author_value(getattr(props, "last_modified_by", None))
+            if last_modified_by:
+                return last_modified_by
+
+            creator = clean_author_value(getattr(props, "creator", None))
+            if creator:
+                return creator
+
+            return "不明"
+
+        elif suffix == ".xls":
+            wb = xlrd.open_workbook(file_path)
+            user_name = clean_author_value(getattr(wb, "user_name", None))
+            if user_name:
+                return user_name
+            return "不明"
+
+        elif suffix == ".pptx":
+            prs = Presentation(file_path)
+            cp = prs.core_properties
+
+            last_modified_by = clean_author_value(getattr(cp, "last_modified_by", None))
+            if last_modified_by:
+                return last_modified_by
+
+            author = clean_author_value(getattr(cp, "author", None))
+            if author:
+                return author
+
+            return "不明"
+
+        elif suffix == ".pdf":
+            doc_pdf = fitz.open(file_path)
+            meta = doc_pdf.metadata or {}
+
+            author = clean_author_value(meta.get("author"))
+            if author:
+                return author
+
+            creator = clean_author_value(meta.get("creator"))
+            if creator:
+                return creator
+
+            producer = clean_author_value(meta.get("producer"))
+            if producer:
+                return producer
+
+            return "不明"
+
+        return "不明"
+
+    except Exception:
+        return "不明"
+
+
 def infer_description(text: str, max_len: int = 200) -> str:
     """本文先頭から説明文を作る"""
     text = normalize_text(text)
@@ -147,8 +243,13 @@ def extract_file_content(file_path: Path) -> dict:
     1ファイル分を処理し、
     app.py / database.py が使いやすい形式で返す
     """
+    updated_at = datetime.fromtimestamp(file_path.stat().st_mtime)
     suffix = file_path.suffix.lower()
 
+    # --- author取得 ---
+    author = extract_author(file_path, suffix)
+
+    # --- 本文抽出 ---
     try:
         if suffix in [".txt", ".md"]:
             raw_text = extract_text_from_txt(file_path)
@@ -171,10 +272,11 @@ def extract_file_content(file_path: Path) -> dict:
                 "description": "",
                 "keywords": "",
                 "full_text": "",
-                "author": "",
+                "author": author,
                 "category": file_path.parent.name,
                 "word_count": 0,
                 "crawled_at": datetime.now().isoformat(),
+                "created_at": updated_at.isoformat(),
                 "crawl_status": "failed",
                 "error_message": f"未対応形式: {suffix}",
             }
@@ -189,10 +291,11 @@ def extract_file_content(file_path: Path) -> dict:
             "description": infer_description(full_text),
             "keywords": "",
             "full_text": full_text,
-            "author": "",
+            "author": author,
             "category": file_path.parent.name,
             "word_count": len(full_text.split()),
             "crawled_at": datetime.now().isoformat(),
+            "created_at": updated_at.isoformat(),
             "crawl_status": "success",
             "error_message": "",
         }
@@ -206,10 +309,11 @@ def extract_file_content(file_path: Path) -> dict:
             "description": "",
             "keywords": "",
             "full_text": "",
-            "author": "",
+            "author": author,
             "category": file_path.parent.name,
             "word_count": 0,
             "crawled_at": datetime.now().isoformat(),
+            "created_at": updated_at.isoformat(),
             "crawl_status": "failed",
             "error_message": str(e),
         }
@@ -228,7 +332,7 @@ def list_files(
         allowed_extensions = [".txt", ".md", ".pdf", ".docx", ".xls", ".xlsx", ".pptx"]
 
     allowed_set = {ext.lower() for ext in allowed_extensions}
-    iterator = base.rglob("*") if recursive else base.glob("*")     #globはディレクトリ直下のファイル、rglobはサブディレクトリ含めたファイル検索可
+    iterator = base.rglob("*") if recursive else base.glob("*")
 
     files = []
     for p in iterator:
