@@ -131,7 +131,7 @@ def highlight_query(text: str, query: str) -> str:
 # DBからページ読込
 pages = load_pages()
 
-st.title("🔍 Tech0 Search")
+st.title("🔍 全社ファイル検索システム")
 st.caption("フォルダ内のファイルを取り込み、全文検索できるアプリ")
 
 # =========================
